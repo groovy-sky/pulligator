@@ -9,3 +9,6 @@
 #   env: dev
 #   owner: groovy-sky
 #   app: az-app1
+
+projectConfig:
+  bicepTemplatePath: main.bicep

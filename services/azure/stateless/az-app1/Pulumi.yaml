@@ -9,15 +9,53 @@ config:
     type: string
   az-app1:tags:
     type: object
+  az-app1:bicepTemplatePath:
+    type: string
+
+variables:
+  bicepTemplatePath: ${az-app1:bicepTemplatePath}
+  bicepTemplateHash:
+    fn::invoke:
+      function: std:filebase64sha256
+      arguments:
+        input: ${az-app1:bicepTemplatePath}
+      return: result
+  deploymentLocation: ${az-app1:location}
 
 resources:
-  rg:
-    type: azure-native:resources:ResourceGroup
+  buildBicep:
+    type: command:local:Command
     properties:
-      resourceGroupName: ${az-app1:resourceGroupName}
-      location: ${az-app1:location}
-      tags: ${az-app1:tags}
+      create: ../../../../shared/scripts/bicep-build.sh ${bicepTemplatePath} --stdout
+      update: ../../../../shared/scripts/bicep-build.sh ${bicepTemplatePath} --stdout
+      delete: echo "no-op"
+      triggers:
+        - ${bicepTemplateHash}
+        - ${az-app1:resourceGroupName}
+
+  rgDeployment:
+    type: azure-native:resources:DeploymentAtSubscriptionScope
+    properties:
+      location: ${deploymentLocation}
+      properties:
+        mode: Incremental
+        template:
+          fn::invoke:
+            function: std:jsondecode
+            arguments:
+              input: ${buildBicep.stdout}
+            return: result
+        parameters:
+          location:
+            value: ${az-app1:location}
+          resourceGroupName:
+            value: ${az-app1:resourceGroupName}
+          tags:
+            value: ${az-app1:tags}
+    options:
+      dependsOn:
+        - ${buildBicep}
 
 outputs:
-  resourceGroupName: ${rg.name}
-  resourceGroupId: ${rg.id}
+  resourceGroupName: ${az-app1:resourceGroupName}
+  resourceGroupId: /subscriptions/${azure-native:subscriptionId}/resourceGroups/${az-app1:resourceGroupName}

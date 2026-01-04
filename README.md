@@ -32,6 +32,21 @@ Key points:
 - Use `./pulumiw.py dev <service> --generate-only` when you just want to refresh config.
 - `catalog.yaml` is the single source of truth for what can be deployed.
 
+## Azure Authentication
+
+Pulumi's Azure Native provider never requires the Azure CLI here. Authenticate with a service principal by exporting these environment variables before running `pulumi` (locally or inside the Docker image):
+
+```
+export ARM_CLIENT_ID=<app-id>
+export ARM_CLIENT_SECRET=<password>
+export ARM_TENANT_ID=<tenant-id>
+export ARM_SUBSCRIPTION_ID=<subscription-id>
+```
+
+When using the minimal Docker image from this repo, pass the variables through `docker run -e ARM_CLIENT_ID=...` so Pulumi can pick them up at runtime. Alternatively, run `pulumi login azure` once per environment if you prefer managed identity/device code auth, but the env-var approach keeps the container image lean.
+
+Running under an Azure Managed Identity? Set `ARM_USE_MSI=true` and keep `ARM_SUBSCRIPTION_ID` (and `ARM_TENANT_ID` if needed). For a user-assigned identity also set `ARM_CLIENT_ID=<identity-object-id>`. No secret is required—Pulumi retrieves tokens from the Instance Metadata Service automatically, even inside the Docker image, as long as those environment variables are present.
+
 ## Adding a Service
 
 1. Create a folder under `services/<provider>/(stateless|stateful)/<name>` and add a Pulumi YAML project.

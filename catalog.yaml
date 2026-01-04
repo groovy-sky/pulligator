@@ -4,3 +4,8 @@ services:
     provider: azure
     type: stateless
     description: "Empty resource group (starter service)"
+  - name: az-bicep-rg
+    path: services/azure/stateless/az-bicep-rg
+    provider: azure
+    type: stateless
+    description: "Resource group provisioned via Bicep template"

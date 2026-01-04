@@ -30,6 +30,10 @@ DEFAULT_PROVIDER = "azure"
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_CONFIG_ERROR = 2
+BACKEND_ENV_VAR = "PULUMIW_BACKEND"
+BACKEND_SENTINEL = ".pulumiw_backend"
+DEFAULT_LOCAL_BACKEND = f"file://{os.path.expanduser('~/.pulumi')}"
+DEFAULT_LOCAL_PASSPHRASE = "pulumiw-local"
 
 # =============================================================================
 # Logging Setup
@@ -116,6 +120,66 @@ def write_yaml(path: str, data: Dict[str, Any], header_lines: List[str]) -> None
 # =============================================================================
 # Config Merging
 # =============================================================================
+# Backend Helpers
+# =============================================================================
+def backend_marker_path() -> str:
+    """Return path to the file storing the last logged-in backend."""
+    return os.path.join(repo_root(), BACKEND_SENTINEL)
+
+
+def read_backend_marker() -> Optional[str]:
+    """Read previously logged backend URL if available."""
+    path = backend_marker_path()
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().strip() or None
+
+
+def write_backend_marker(url: str) -> None:
+    """Persist backend URL marker."""
+    path = backend_marker_path()
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(url)
+
+
+def resolve_backend_url() -> str:
+    """Determine which Pulumi backend URL to use based on environment."""
+    raw = os.getenv(BACKEND_ENV_VAR)
+    if not raw:
+        return DEFAULT_LOCAL_BACKEND
+
+    raw = raw.strip()
+    if not raw or raw.lower() in {"local", "file", "default"}:
+        return DEFAULT_LOCAL_BACKEND
+
+    return raw
+
+
+def ensure_backend_login(backend_url: str) -> None:
+    """Run `pulumi login` once per backend URL, caching success locally."""
+    last_url = read_backend_marker()
+    if last_url == backend_url:
+        return
+
+    log.info("Logging into Pulumi backend: %s", backend_url)
+    rc = run_command(["pulumi", "login", backend_url])
+    if rc != 0:
+        raise RuntimeError(f"Failed to login to Pulumi backend '{backend_url}' (exit code {rc})")
+    write_backend_marker(backend_url)
+
+
+def ensure_local_backend_secrets(backend_url: str) -> None:
+    """Preconfigure passphrase for local backend so CLI won't prompt."""
+    if not backend_url.startswith("file://"):
+        return
+
+    if os.getenv("PULUMI_CONFIG_PASSPHRASE") or os.getenv("PULUMI_CONFIG_PASSPHRASE_FILE"):
+        return
+
+    # Provide a deterministic passphrase so local backends stay non-interactive.
+    os.environ.setdefault("PULUMI_CONFIG_PASSPHRASE", DEFAULT_LOCAL_PASSPHRASE)
+
 
 def deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -378,6 +442,7 @@ def ensure_stack(project_dir: str, stack: str) -> None:
     rc = run_command(["pulumi", "-C", project_dir, "stack", "select", "-s", stack], capture=True)
     if rc == 0:
         return
+
     rc = run_command(["pulumi", "-C", project_dir, "stack", "init", stack])
     if rc != 0:
         raise RuntimeError(f"Failed to select/init stack '{stack}' in {project_dir}")
@@ -624,6 +689,15 @@ def main(argv: List[str]) -> int:
     # Dispatch to command
     if ns.validate:
         return cmd_validate()
+
+    backend_url = resolve_backend_url()
+    try:
+        ensure_backend_login(backend_url)
+    except Exception as exc:
+        log.error("Pulumi backend login failed: %s", exc)
+        return EXIT_FAILURE
+
+    ensure_local_backend_secrets(backend_url)
 
     return cmd_process(
         stack=ns.stack,

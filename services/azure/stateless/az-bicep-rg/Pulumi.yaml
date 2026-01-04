@@ -1,0 +1,50 @@
+name: az-bicep-rg
+runtime: yaml
+description: "Service: az-bicep-rg (creates a resource group through an ARM template)"
+
+config:
+  az-bicep-rg:location:
+    type: string
+  az-bicep-rg:resourceGroupName:
+    type: string
+  az-bicep-rg:tags:
+    type: object
+  az-bicep-rg:armTemplatePath:
+    type: string
+
+variables:
+  armTemplatePath: ${az-bicep-rg:armTemplatePath}
+  armTemplateContents:
+    fn::invoke:
+      function: std:file
+      arguments:
+        input: ${armTemplatePath}
+      return: result
+  armTemplate:
+    fn::invoke:
+      function: std:jsondecode
+      arguments:
+        input: ${armTemplateContents}
+      return: result
+  deploymentLocation: ${az-bicep-rg:location}
+
+
+resources:
+  rgDeployment:
+    type: azure-native:resources:DeploymentAtSubscriptionScope
+    properties:
+      location: ${deploymentLocation}
+      properties:
+        mode: Incremental
+        template: ${armTemplate}
+        parameters:
+          location:
+            value: ${az-bicep-rg:location}
+          resourceGroupName:
+            value: ${az-bicep-rg:resourceGroupName}
+          tags:
+            value: ${az-bicep-rg:tags}
+
+outputs:
+  resourceGroupName: ${az-bicep-rg:resourceGroupName}
+  resourceGroupId: /subscriptions/${azure-native:subscriptionId}/resourceGroups/${az-bicep-rg:resourceGroupName}

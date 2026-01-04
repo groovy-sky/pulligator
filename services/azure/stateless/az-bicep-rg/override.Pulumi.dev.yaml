@@ -1,0 +1,8 @@
+# Service-specific overrides for az-bicep-rg in dev stack
+# Any values here override services/azure/Pulumi.dev.yaml
+
+# Uncomment to override resource group name:
+# resourceGroupName: rg-custom-az-bicep-rg-dev
+
+projectConfig:
+  armTemplatePath: resource-group.json
