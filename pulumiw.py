@@ -204,6 +204,11 @@ def global_config_path(stack: str, provider: str) -> str:
     return os.path.join(repo_root(), "services", provider, f"Pulumi.{stack}.yaml")
 
 
+def common_config_path(provider: str) -> str:
+    """Get path to provider-level common config shared across stacks."""
+    return os.path.join(repo_root(), "services", provider, "Pulumi.yaml")
+
+
 def service_override_path(project_dir: str, stack: str) -> str:
     """Get path to service-specific override file."""
     return os.path.join(project_dir, f"override.Pulumi.{stack}.yaml")
@@ -320,9 +325,11 @@ def load_catalog() -> List[Dict[str, Any]]:
 
 def parse_service_entry(raw: Dict[str, Any]) -> ServiceEntry:
     """Parse a raw catalog entry into a ServiceEntry."""
+    path = raw.get("path", "")
+    inferred_name = os.path.basename(path.rstrip("/")) if path else ""
     return ServiceEntry(
-        name=raw.get("name", ""),
-        path=raw.get("path", ""),
+        name=raw.get("name") or inferred_name,
+        path=path,
         provider=raw.get("provider", DEFAULT_PROVIDER),
         type=raw.get("type", ""),
         description=raw.get("description", ""),
@@ -336,7 +343,7 @@ def validate_catalog() -> Tuple[List[ServiceEntry], List[str]]:
     """
     raw_services = load_catalog()
     if not raw_services:
-        return [], ["catalog.yaml is empty or missing"]
+        return [], []
 
     services: List[ServiceEntry] = []
     errors: List[str] = []
@@ -367,7 +374,54 @@ def find_service(name: str, services: List[ServiceEntry]) -> Optional[ServiceEnt
     for svc in services:
         if svc.name == name:
             return svc
+    for svc in services:
+        path_name = os.path.basename(svc.path.rstrip("/")) if svc.path else ""
+        if path_name == name:
+            return svc
     return None
+
+
+def discover_services_from_fs() -> List[ServiceEntry]:
+    """Scan the services directory to discover projects not listed in catalog.yaml."""
+    services_dir = os.path.join(repo_root(), "services")
+    discovered: List[ServiceEntry] = []
+
+    if not os.path.isdir(services_dir):
+        return discovered
+
+    for provider in sorted(os.listdir(services_dir)):
+        provider_dir = os.path.join(services_dir, provider)
+        if not os.path.isdir(provider_dir):
+            continue
+
+        for svc_type in sorted(os.listdir(provider_dir)):
+            type_dir = os.path.join(provider_dir, svc_type)
+            if not os.path.isdir(type_dir):
+                continue
+            if svc_type not in VALID_SERVICE_TYPES:
+                continue
+
+            for service_name in sorted(os.listdir(type_dir)):
+                service_dir = os.path.join(type_dir, service_name)
+                if not os.path.isdir(service_dir):
+                    continue
+
+                pulumi_yaml = os.path.join(service_dir, "Pulumi.yaml")
+                if not os.path.isfile(pulumi_yaml):
+                    continue
+
+                rel_path = os.path.relpath(service_dir, repo_root())
+                discovered.append(
+                    ServiceEntry(
+                        name=service_name,
+                        path=rel_path,
+                        provider=provider,
+                        type=svc_type,
+                        description="",
+                    )
+                )
+
+    return discovered
 
 
 # =============================================================================
@@ -385,7 +439,10 @@ def generate_config(
     Returns (output_path, config_data).
     Raises exceptions on validation errors.
     """
-    # Load global config
+    # Load optional common config + stack-specific global config
+    common_file = common_config_path(provider)
+    common_vars = load_yaml(common_file)
+
     global_file = global_config_path(stack, provider)
     if not os.path.exists(global_file):
         raise FileNotFoundError(
@@ -397,8 +454,9 @@ def generate_config(
     override_file = service_override_path(project_dir, stack)
     override_vars = load_yaml(override_file)
 
-    # Merge: global + override
-    merged_vars = deep_merge(global_vars, override_vars)
+    # Merge: common -> global -> override
+    merged_vars = deep_merge(common_vars, global_vars)
+    merged_vars = deep_merge(merged_vars, override_vars)
 
     # Read project name from Pulumi.yaml
     project_name = read_project_name(project_dir)
@@ -468,7 +526,12 @@ def ensure_stack(project_dir: str, stack: str) -> None:
 
 def run_pulumi(project_dir: str, stack: str, command: str, extra_args: List[str]) -> int:
     """Run a Pulumi command in the given project directory."""
-    cmd = ["pulumi", "-C", project_dir, command, "-s", stack] + extra_args
+    cmd = ["pulumi", "-C", project_dir, command, "-s", stack]
+
+    if command in {"up", "destroy"} and "--yes" not in extra_args:
+        cmd.append("--yes")
+
+    cmd += extra_args
     log.info("Executing: %s", " ".join(cmd))
     return run_command(cmd)
 
@@ -644,14 +707,21 @@ def cmd_process(
             log.error("  - %s", err)
         return EXIT_CONFIG_ERROR
 
+    discovered = discover_services_from_fs()
+    existing_paths = {svc.path for svc in services}
+    for svc in discovered:
+        if svc.path not in existing_paths:
+            services.append(svc)
+            existing_paths.add(svc.path)
+
     # Determine which services to process
     if service_name == "all":
         targets = services
     else:
         target = find_service(service_name, services)
         if not target:
-            log.error("Service '%s' not found in catalog.yaml", service_name)
-            log.info("Available services: %s", ", ".join(s.name for s in services))
+            log.error("Service '%s' not found", service_name)
+            log.info("Available services: %s", ", ".join(sorted(set(s.name for s in services))))
             return EXIT_CONFIG_ERROR
         targets = [target]
 

@@ -3,8 +3,3 @@ env: prod
 tags:
   env: prod
   owner: groovy-sky
-
-projectConfig:
-  services:
-    az-bicep-rg:
-      armTemplatePath: ../../shared/resource-group.json

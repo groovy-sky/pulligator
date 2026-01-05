@@ -1,0 +1,4 @@
+projectConfig:
+  services:
+    az-simple-rg:
+      armTemplatePath: ../../shared/

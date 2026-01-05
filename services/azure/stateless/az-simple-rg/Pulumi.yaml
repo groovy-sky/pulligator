@@ -1,24 +1,23 @@
-name: az-bicep-rg
+name: az-simple-rg
 runtime: yaml
-description: "Service: az-bicep-rg (creates a resource group through an ARM template)"
+description: "Service: az-simple-rg (creates a resource group through an ARM template)"
 
 config:
-  az-bicep-rg:location:
+  az-simple-rg:location:
     type: string
-  az-bicep-rg:resourceGroupName:
+  az-simple-rg:resourceGroupName:
     type: string
-  az-bicep-rg:tags:
+  az-simple-rg:tags:
     type: object
-  az-bicep-rg:armTemplatePath:
+  az-simple-rg:armTemplatePath:
     type: string
 
 variables:
-  armTemplatePath: ${az-bicep-rg:armTemplatePath}
   armTemplateContents:
     fn::invoke:
       function: std:file
       arguments:
-        input: ${armTemplatePath}
+        input: ${az-simple-rg:armTemplatePath}/resource-group.json
       return: result
   armTemplate:
     fn::invoke:
@@ -26,7 +25,7 @@ variables:
       arguments:
         input: ${armTemplateContents}
       return: result
-  deploymentLocation: ${az-bicep-rg:location}
+  deploymentLocation: ${az-simple-rg:location}
 
 resources:
   rgDeployment:
@@ -38,12 +37,12 @@ resources:
         template: ${armTemplate}
         parameters:
           location:
-            value: ${az-bicep-rg:location}
+            value: ${az-simple-rg:location}
           resourceGroupName:
-            value: ${az-bicep-rg:resourceGroupName}
+            value: ${az-simple-rg:resourceGroupName}
           tags:
-            value: ${az-bicep-rg:tags}
+            value: ${az-simple-rg:tags}
 
 outputs:
-  resourceGroupName: ${az-bicep-rg:resourceGroupName}
-  resourceGroupId: /subscriptions/${azure-native:subscriptionId}/resourceGroups/${az-bicep-rg:resourceGroupName}
+  resourceGroupName: ${az-simple-rg:resourceGroupName}
+  resourceGroupId: /subscriptions/${azure-native:subscriptionId}/resourceGroups/${az-simple-rg:resourceGroupName}
