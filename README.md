@@ -1,5 +1,7 @@
 # Pulumi YAML-First Template
 
+![](logo_small.png)
+
 Run many Pulumi YAML projects from one catalog. Global config lives once per provider/environment, each service only overrides what it needs, and `pulumiw.py` glues it all together.
 
 ## Repo Layout
